@@ -1,0 +1,49 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Model checkpoints and weights
+*.pth
+*.pt
+*.ckpt
+*.onnx
+
+# Generated experiment artifacts
+vit_cifar10_artifacts/
+checkpoints/
+outputs/
+logs/
+
+# Datasets
+data/
+datasets/
+*.csv
+*.parquet
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# IDE and OS files
+.DS_Store
+.idea/
+.vscode/
+
+# Python testing and coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Temporary files
+*.tmp
+*.log
