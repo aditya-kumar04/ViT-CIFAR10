@@ -1,116 +1,104 @@
-# Vision Transformer (ViT) on CIFAR-10
+# Vision Transformer (ViT) from scratch on CIFAR-10
 
-A compact, from-scratch PyTorch implementation of a Vision Transformer (ViT), evaluated on CIFAR-10 and compared with a CIFAR-adapted ResNet-18 baseline.
+Reduced-scale reproduction of **Dosovitskiy et al., _An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale_ (ICLR 2021)** for the Deep Learning 2026 paper-implementation project (24CS3006, DL-065).
 
-> **Scope:** This is a reduced-scale educational reproduction inspired by *An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale*. It is not a reproduction of the original paper's large-scale ImageNet/JFT experiments.
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/aditya-kumar04/ViT-CIFAR10/blob/main/ViT_CIFAR10_Colab.ipynb)
+
+**What is reproduced.** The paper's central claim: a ViT has no convolutional inductive bias, so it trails comparable ResNets when data are limited and catches up only with large-scale pre-training. This repo tests that claim in miniature on a free Colab T4:
+
+| # | Experiment | Paper reference |
+|---|---|---|
+| 1 | ViT vs ResNet-18, **from scratch**, on 10 / 25 / 50 / 100 % of CIFAR-10 | §4.2, Fig. 3-4 (data scale vs. inductive bias) |
+| 2 | **Pre-trained** ViT-B/16 vs ResNet-50, fine-tuned on CIFAR-10 | Table 5 (CIFAR-10: 98.13 / 98.95 / 99.00 % for ImageNet-1k / ImageNet-21k / JFT-300M pre-training) |
+| 3 | **Ablation:** position embedding none / 1-D learned / 2-D sin-cos | Appendix D.4 |
+| 4 | Attention rollout grid, confusion matrix, failure cases | Fig. 6 (attention from the output token to the input) |
+
+> This is **not** a reproduction of the paper's ImageNet/JFT-scale training. Differences (model size, schedule, checkpoints) are listed below and in the report.
 
 ## Results
 
-Results below are from the local notebook run. The primary models were trained for 15 epochs with batch size 64, AdamW (learning rate `3e-4`, weight decay `0.05`), and cosine annealing.
+Numbers are produced by the notebook and pasted below by `python analysis.py --update-readme README.md`. Until you have run it, the block is empty. Do not fill it by hand.
 
-| Experiment | Trainable parameters | Best validation accuracy | Test accuracy |
-|---|---:|---:|---:|
-| ViT, dropout 0.1, full training partition | 1,205,898 | 71.94% | 72.00% |
-| ResNet-18 from scratch | 11,173,962 | 90.34% | 89.41% |
-| ViT, 20% training data (9,000 images) | 1,205,898 | 51.22% | 51.11% |
-| ViT, dropout 0.0 | 1,205,898 | 74.42% | 75.02% |
+<!-- RESULTS:START -->
+_Run the notebook, then `python analysis.py --out-dir . --update-readme README.md`._
+<!-- RESULTS:END -->
 
-### Interpretation and caveats
+Figures: `figures/` (data-fraction sweep, training curves, position-embedding ablation, rollout grid, confusion matrices). Raw per-run results (JSON with full history, per-epoch CSV, test predictions): `results/`.
 
-- ResNet-18 exceeds the baseline ViT by **17.41 percentage points** in test accuracy for these specific configurations and this training budget.
-- Training the ViT on 20% of the training partition lowers test accuracy by **20.89 percentage points** relative to the full-data baseline.
-- The no-dropout run is **3.02 percentage points** higher than the baseline ViT, but this is a single-run comparison with different seeds. Treat it as exploratory, not a reliable estimate of the causal effect of dropout.
-- The baseline ViT's best validation accuracy occurred at epoch 15, so the training budget may not establish convergence.
-- Attention rollout is qualitative and does not prove causal feature importance.
+### Earlier version (v1, kept for honesty)
 
-Do not report these metrics as independently reproduced until you have rerun the notebook yourself.
+The first iteration (`legacy/`, 15 epochs, crop + flip only, dropout 0.1, 1.2 M-parameter ViT, local Jupyter) reached 72.00 % (ViT) vs 89.41 % (ResNet-18) test accuracy, 51.11 % for the ViT on 20 % of the data, and 75.02 % with dropout 0 (single runs with different seeds, so that last difference is not reliable). The new recipe replaces it.
 
-## Model details
+## Quick start
 
-### Vision Transformer
+**Colab (recommended):** click the badge → Runtime ▸ T4 GPU → set `PRESET` in the second cell → Run all.
 
-- Input: RGB CIFAR-10 images, `32 × 32`
-- Patch size: `4 × 4`
-- Number of patches: `64`
-- Tokens: `64` patch tokens + one CLS token = `65`
-- Embedding dimension: `128`
-- Transformer depth: `6`
-- Attention heads: `4`
-- MLP hidden dimension: `512`
-- Dropout baseline: `0.1`
-- Trainable parameters: `1,205,898`
+| `PRESET` | purpose | rough T4 time (estimate, measure your first epoch) |
+|---|---|---|
+| `dev` | tiny fake-data run that checks the whole pipeline | minutes |
+| `quick` | 30 epochs @100 %, 2 fine-tune epochs | ~1.5-2 h in total |
+| `full` | 100 epochs @100 %, 3 fine-tune epochs | ~4-5 h in total |
 
-### ResNet-18 baseline
+Finished runs are cached and interrupted runs resume from the last epoch; with `USE_DRIVE = True` results survive a Colab disconnect.
 
-ResNet-18 is trained from scratch. Its initial convolution is adapted to a `3 × 3`, stride-1 convolution, the initial max-pooling is removed, and the final layer outputs 10 classes.
-
-## Project structure
-
-```text
-.
-├── ViT_CIFAR10_Local_Resumable.ipynb
-├── requirements_vit_local.txt
-├── README.md
-├── .gitignore
-├── reports/
-│   ├── ViT_CIFAR10_IEEE_Report.tex
-│   └── ViT_CIFAR10_IEEE_Report_Draft.pdf
-└── vit_cifar10_artifacts/        # generated at runtime; do not commit large checkpoints
-    ├── checkpoints/
-    ├── data/
-    └── results/
-```
-
-## Setup: local Jupyter / Antigravity
-
-Python 3.10–3.12 is recommended for broad PyTorch package compatibility. Check the current official PyTorch installation instructions for your OS and hardware if installation fails.
-
+**Local:**
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements_vit_local.txt
-python -m ipykernel install --user --name vit-cifar10 --display-name "Python (ViT CIFAR-10)"
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+python tests/smoke_test.py            # ~1-2 min on CPU, no downloads
+jupyter lab ViT_CIFAR10_Colab.ipynb   # needs a GPU for quick/full
 ```
 
-Open `ViT_CIFAR10_Local_Resumable.ipynb` in Jupyter or Antigravity and select the `Python (ViT CIFAR-10)` kernel. Run cells from top to bottom.
+**After the runs**
+```bash
+python analysis.py --out-dir . --report-dir reports/generated --update-readme README.md
+cd reports && pdflatex ViT_CIFAR10_IEEE_Report.tex && pdflatex ViT_CIFAR10_IEEE_Report.tex
+```
+The report reads `reports/generated/*.tex` and `figures/*.png` automatically. Red text in the PDF marks sentences that depend on your numbers; check them, then set `\draftfalse`.
 
-The notebook automatically selects CUDA, Apple Silicon MPS, or CPU. The first run downloads CIFAR-10 into `vit_cifar10_artifacts/data/`.
+## What was written by hand vs. taken from libraries
 
-## Checkpoint recovery
+| By hand (`vit_lib.py`) | From libraries |
+|---|---|
+| patch embedding, CLS token, 1-D learned / 2-D sin-cos / no position embedding | `nn.Linear`, `nn.Conv2d`, `nn.LayerNorm`, `nn.GELU`, `nn.Dropout` |
+| multi-head self-attention (explicit softmax(QKᵀ/√d)V, returns attention maps), pre-LN encoder, MLP head | AdamW / SGD, `torchvision` datasets, transforms (incl. RandAugment), `torchvision` ResNet-18 skeleton |
+| mixup / CutMix, warm-up + cosine schedule, resumable training loop, attention rollout | `timm` **pre-trained** ViT-B/16 and ResNet-50 for Experiment 2 only |
 
-The notebook saves a latest checkpoint after each completed epoch, a best-validation checkpoint, per-epoch CSV history, and experiment metadata under `vit_cifar10_artifacts/`.
+Unit tests (`tests/smoke_test.py`) check, among other things, that the patch-embedding `Conv2d` equals flatten + `Linear`, that the hand-written attention matches `scaled_dot_product_attention`, that attention rows sum to 1, that rollout rows stay normalised, that data-fraction subsets are nested and the split disjoint, and that a crashed run resumes from its last checkpoint.
 
-If a kernel crashes:
-1. Keep the entire `vit_cifar10_artifacts/` directory.
-2. Reopen the notebook and execute cells from the top.
-3. Keep `RESUME_FROM_CHECKPOINT = True`.
-4. Resume with the same experiment name, epoch budget, model configuration, data split, and training settings.
+## Setup used and differences from the paper
 
-Back up the notebook and `vit_cifar10_artifacts/` folder together. Do not commit raw checkpoints or CIFAR-10 files to GitHub unless you intentionally want a large repository.
+- ViT-Tiny-sized model (patch 4, 64 tokens + CLS, D = 192, depth 8, 6 heads, MLP 768) on 32×32 images; the paper's smallest model (ViT-B/16) has 86 M parameters.
+- 30-100 epochs from scratch (the paper pre-trains for hundreds of epochs on far larger data).
+- Both from-scratch models share augmentation (crop, flip, RandAugment, mixup/CutMix, label smoothing 0.1), schedule shape and number of updates; optimisers differ (AdamW for ViT, Nesterov SGD for ResNet) because each uses its standard recipe.
+- Smaller training subsets are trained for proportionally more epochs (`EQUAL_STEPS = True`) so that data quantity, not update count, is what changes.
+- Experiment 2 uses `timm` checkpoints and a short fine-tuning schedule, not the paper's checkpoints.
+- Seeds: `SEEDS` / `ABL_SEEDS` in the notebook (default one seed; use three for mean ± std).
 
 ## Reproducibility
 
-- Global seed: `42` for the primary configuration.
-- Train/validation split: 45,000 / 5,000 from the 50,000-image training partition.
-- Test set: official 10,000-image CIFAR-10 test partition.
-- Training augmentation: random crop with padding 4 and random horizontal flip.
-- Evaluation: deterministic normalization.
-- Checkpoint selection: highest validation accuracy.
-- Test metrics: calculated for the selected checkpoint.
+Seed 42; fixed 45 000 / 5 000 train / validation split (from the 50 000 training images); the official 10 000 test images are evaluated once, on the best-validation checkpoint. No hyper-parameters are tuned on the test set. `results/*.json` stores the full config, history, GPU and library versions for every run.
 
-For robust conclusions, run the optional multi-seed dropout experiment and report mean ± standard deviation. Keep validation for model selection and reserve the test set for final evaluation.
+## Repository layout
 
-## Report
+```
+vit_lib.py                 model, data, training loop, rollout (from scratch)
+analysis.py                summaries, plots, LaTeX tables/macros, README update
+ViT_CIFAR10_Colab.ipynb    runs every experiment (Colab T4)
+tests/smoke_test.py        CPU tests
+reports/                   IEEE report (.tex), generated/ tables, v1_draft/
+results/  figures/         committed outputs of the runs
+legacy/                    v1 local notebook (15-epoch baseline)
+```
 
-The IEEE-style report draft describes the methodology, equations, results, limitations, and references. Review all metadata and verify the final formatting and required page count before submission.
+## References and credits
 
-## References
-
-1. A. Dosovitskiy et al., “An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale,” ICLR, 2021.
-2. K. He, X. Zhang, S. Ren, and J. Sun, “Deep Residual Learning for Image Recognition,” CVPR, 2016, pp. 770–778, doi: 10.1109/CVPR.2016.90.
-3. A. Krizhevsky, “Learning Multiple Layers of Features from Tiny Images,” University of Toronto technical report, 2009.
+1. A. Dosovitskiy et al., "An Image is Worth 16x16 Words," ICLR 2021 (arXiv:2010.11929). Only the paper was consulted; no ViT repository code was copied.
+2. S. Abnar, W. Zuidema, "Quantifying Attention Flow in Transformers," ACL 2020 (attention rollout).
+3. K. He et al., "Deep Residual Learning for Image Recognition," CVPR 2016.
+4. A. Krizhevsky, "Learning Multiple Layers of Features from Tiny Images," 2009.
+5. R. Wightman, `timm` (PyTorch Image Models), used for pre-trained backbones in Experiment 2.
 
 ## License
 
-Choose and add a license before making the repository public. Do not claim a license for third-party assets or code unless its terms permit it.
+MIT, see `LICENSE`.

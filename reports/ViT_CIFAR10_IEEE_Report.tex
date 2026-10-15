@@ -1,17 +1,43 @@
+% ViT on CIFAR-10 -- IEEE two-column report (4-6 pages)
+% Build: pdflatex ViT_CIFAR10_IEEE_Report  (run twice).
+% The numbers/tables come from ../results via `python analysis.py` (see the notebook, section 7):
+%   generated/results_macros.tex, generated/tab_*.tex   and   ../figures/*.png
+% Red text = a sentence that depends on YOUR measured numbers. Read it, edit it if the numbers
+% disagree, then switch \drafttrue to \draftfalse below to turn the red off.
 \documentclass[conference]{IEEEtran}
 \IEEEoverridecommandlockouts
 \usepackage{cite}
 \usepackage{amsmath,amssymb}
 \usepackage{graphicx}
 \usepackage{booktabs}
+\usepackage{xcolor}
 \usepackage{url}
-\usepackage{hyperref}
+\usepackage[hidelinks]{hyperref}
+\graphicspath{{../figures/}}
 
-\title{A Reduced-Scale Vision Transformer Implementation and CNN Baseline Evaluation on CIFAR-10}
+\newif\ifdraft \drafttrue
+\newcommand{\verify}[1]{\ifdraft{\color{red}#1}\else#1\fi}
+
+% ---- defaults, overwritten by generated/results_macros.tex ------------------------------
+\newcommand{\accVitTen}{--}\newcommand{\accVitTwentyFive}{--}\newcommand{\accVitFifty}{--}\newcommand{\accVitFull}{--}
+\newcommand{\accResTen}{--}\newcommand{\accResTwentyFive}{--}\newcommand{\accResFifty}{--}\newcommand{\accResFull}{--}
+\newcommand{\gapTen}{--}\newcommand{\gapTwentyFive}{--}\newcommand{\gapFifty}{--}\newcommand{\gapFull}{--}
+\newcommand{\paramsVit}{--}\newcommand{\paramsRes}{--}\newcommand{\epochsVit}{--}\newcommand{\epochsRes}{--}
+\newcommand{\minutesVit}{--}\newcommand{\minutesRes}{--}
+\newcommand{\accAblNone}{--}\newcommand{\accAblLearned}{--}\newcommand{\accAblSincos}{--}\newcommand{\accAblMean}{--}
+\newcommand{\accFtVit}{--}\newcommand{\accFtRes}{--}\newcommand{\epochsFt}{--}
+\newcommand{\topConfVit}{--}\newcommand{\topConfRes}{--}
+\newcommand{\worstClassVit}{--}\newcommand{\worstAccVit}{--}\newcommand{\bestClassVit}{--}\newcommand{\bestAccVit}{--}
+\newcommand{\worstClassRes}{--}\newcommand{\worstAccRes}{--}
+\IfFileExists{generated/results_macros.tex}{\input{generated/results_macros.tex}}{}
+\newcommand{\gentab}[1]{\IfFileExists{generated/#1.tex}{\input{generated/#1.tex}}{\emph{(table missing: run the notebook)}}}
+\newcommand{\figbox}[2]{\IfFileExists{../figures/#1.png}{\includegraphics[width=#2]{#1}}{\fbox{\parbox{#2}{\centering\vspace{2.5em}missing figure: \detokenize{#1}\vspace{2.5em}}}}}
+
+\title{Do Vision Transformers Need Convolutional Inductive Bias? A Reduced-Scale Reproduction of ``An Image is Worth 16$\times$16 Words'' on CIFAR-10}
 
 \author{
 \IEEEauthorblockN{Aditya Kumar Jha}
-\IEEEauthorblockA{Independent Course Project\\
+\IEEEauthorblockA{B.Tech CSE, RGIPT --- Course 24CS3006, Deep Learning 2026 (paper project DL-065)\\
 Email: [add institutional email if required]}
 }
 
@@ -19,105 +45,163 @@ Email: [add institutional email if required]}
 \maketitle
 
 \begin{abstract}
-Vision Transformers (ViTs) apply self-attention to sequences of image patches and provide an alternative to convolutional neural networks for visual recognition. This project implements a compact ViT from scratch in PyTorch and evaluates it on CIFAR-10. A CIFAR-adapted ResNet-18 is trained under the same data split and epoch budget as a convolutional baseline. Additional experiments investigate reduced training-data availability and the effect of removing dropout. The ViT contains 1,205,898 trainable parameters and reaches 72.00\% test accuracy after 15 epochs, while ResNet-18 contains 11,173,962 parameters and reaches 89.41\%. Training the ViT on 20\% of the training partition (9,000 images) yields 51.11\% test accuracy. A single run with dropout set to zero reaches 75.02\%, compared with 72.00\% for the baseline with dropout 0.1. These results indicate that, under this compact from-scratch training setup, the convolutional baseline is more accurate and the ViT is sensitive to training-set size. The dropout finding is preliminary because the comparison is based on single runs with different random seeds. This study is a reduced-scale educational reproduction and does not attempt to reproduce the original ViT paper's large-scale ImageNet/JFT training regime.
+The Vision Transformer (ViT) classifies an image by feeding a sequence of linearly embedded patches to a standard Transformer encoder. Its central claim is that this architecture, which lacks the locality and translation-equivariance priors of convolutions, matches or beats strong CNNs only when it is pre-trained on large datasets. I re-implement ViT from scratch in PyTorch (patch embedding, CLS token, position embeddings, hand-written multi-head self-attention, pre-LN encoder) and test this claim at small scale on CIFAR-10 on a single Colab T4 GPU. Experiments: (i) ViT vs.\ a CIFAR-adapted ResNet-18, both trained from scratch on 10--100\,\% of the training set; (ii) the same comparison after fine-tuning ImageNet-pre-trained ViT-B/16 and ResNet-50; (iii) an ablation of the position embedding (none, 1-D learned, 2-D sin-cos); and (iv) attention-rollout visualisations and a confusion analysis. \verify{With the full training set the ViT reaches \accVitFull\,\% test accuracy against \accResFull\,\% for ResNet-18; the ResNet's lead is \gapTen{} points at 10\,\% of the data and \gapFull{} at 100\,\%. Fine-tuned ViT-B/16 reaches \accFtVit\,\% versus \accFtRes\,\% for ResNet-50 (paper: 98.95\,\% for ImageNet-21k pre-training). Removing position embeddings gives \accAblNone\,\% versus \accAblLearned\,\% with learned embeddings.}
 \end{abstract}
 
 \begin{IEEEkeywords}
-Vision Transformer, ViT, CIFAR-10, self-attention, ResNet-18, ablation study, image classification.
+Vision Transformer, inductive bias, CIFAR-10, attention rollout, transfer learning, ablation.
 \end{IEEEkeywords}
 
-\section{Introduction}
-Convolutional neural networks (CNNs) use local connectivity and weight sharing to encode useful spatial inductive biases. Vision Transformers adapt the Transformer architecture to images by dividing an image into patches, projecting each patch into an embedding, and processing the resulting token sequence with self-attention \cite{dosovitskiy2021}. The original ViT study demonstrated that Transformers can achieve strong image-recognition performance when trained with sufficient data and appropriate training procedures.
+\section{Introduction and Motivation}
+Convolutional networks build in two useful assumptions about images: \emph{locality} (nearby pixels interact) and \emph{translation equivariance} (the same filter is applied everywhere). Dosovitskiy \emph{et al.}\ \cite{dosovitskiy2021} showed that a pure Transformer \cite{vaswani2017}, applied to $16\times16$ image patches with almost no image-specific structure, reaches excellent accuracy after large-scale pre-training. They also report that, trained on a mid-sized dataset such as ImageNet without strong regularisation, ViT is a few points \emph{worse} than comparable ResNets; the lack of inductive bias must be paid for with data.
 
-The aim of this project is to implement the central ViT components directly in PyTorch and study their behavior on CIFAR-10, a ten-class image-classification benchmark \cite{krizhevsky2009}. Because CIFAR-10 images are only $32 \times 32$ pixels and the available compute is limited, the model and training budget are deliberately smaller than those in the original work. The experiments address three questions: (1) how does a compact ViT compare with a CNN baseline under the same data split and epoch budget; (2) how sensitive is ViT performance to reducing the training set; and (3) what is the observed effect of removing dropout in this configuration?
+This project asks whether that trend is visible at a scale a student can reproduce. The questions are: \textbf{Q1} how does a from-scratch ViT compare with a ResNet as the amount of training data shrinks? \textbf{Q2} does pre-training on a large dataset close the gap, and how do my numbers compare with the paper's? \textbf{Q3} which ViT component matters most (here: the position embedding)? \textbf{Q4} what does the model attend to, and where does it fail? The paper's JFT-300M/ImageNet-21k pre-training is far outside the compute budget, so the reproduction is explicitly \emph{reduced-scale}: what changed is stated in Sec.~\ref{sec:setup}.
 
 \section{Method}
-\subsection{Dataset and preprocessing}
-CIFAR-10 contains 60,000 color images of size $32 \times 32$ distributed across ten classes. The 50,000-image training partition was split into 45,000 training images and 5,000 validation images using a fixed seed. The official 10,000-image test partition was kept separate. Training preprocessing used random cropping with four-pixel padding, random horizontal flipping, tensor conversion, and channel normalization. Validation and test images were normalized without random augmentation.
-
-For the low-data experiment, 20\% of the 45,000-image training partition was sampled, resulting in 9,000 training images. The validation and test partitions were unchanged. The same data split and evaluation procedure were used across the main ViT and ResNet-18 comparison.
-
-\subsection{Vision Transformer architecture}
-The ViT is implemented from scratch. Each input image is divided into non-overlapping $4 \times 4$ patches. Therefore, each image yields
+\subsection{Vision Transformer}
+An image $\mathbf{x}\in\mathbb{R}^{H\times W\times C}$ is cut into $N=HW/P^2$ non-overlapping patches $\mathbf{x}_p^i\in\mathbb{R}^{P^2C}$ which are flattened and projected by one shared matrix $\mathbf{E}\in\mathbb{R}^{(P^2C)\times D}$. A learnable CLS token and position embeddings $\mathbf{E}_{pos}\in\mathbb{R}^{(N+1)\times D}$ are added:
 \begin{equation}
-N = \left(\frac{32}{4}\right)^2 = 64
+\mathbf{z}_0=[\mathbf{x}_{cls};\,\mathbf{x}_p^1\mathbf{E};\dots;\mathbf{x}_p^N\mathbf{E}]+\mathbf{E}_{pos}.
 \end{equation}
-patch tokens. A learned classification token is prepended, giving a sequence of $N+1=65$ tokens. A convolution with kernel size and stride equal to the patch size implements patch projection. Learned positional embeddings are added to preserve patch-order information.
-
-The model uses embedding dimension $D=128$, four attention heads, six Transformer encoder blocks, an MLP hidden dimension of 512, and dropout 0.1 in the baseline. Each encoder block uses pre-layer normalization, multi-head self-attention, a residual connection, and a feed-forward MLP with GELU activation. The final normalized classification-token representation is passed to a linear classifier with ten output logits. The model has 1,205,898 trainable parameters.
-
-Scaled dot-product attention is computed as
+Each of the $L$ pre-LN encoder blocks computes
+\begin{align}
+\mathbf{z}'_\ell&=\mathrm{MSA}(\mathrm{LN}(\mathbf{z}_{\ell-1}))+\mathbf{z}_{\ell-1},\\
+\mathbf{z}_\ell&=\mathrm{MLP}(\mathrm{LN}(\mathbf{z}'_\ell))+\mathbf{z}'_\ell,
+\end{align}
+and the class logits are $\mathbf{y}=\mathbf{W}\,\mathrm{LN}(\mathbf{z}_L^{0})$ (the CLS row). Self-attention for head $h$ is
 \begin{equation}
-\operatorname{Attention}(Q,K,V)
-=\operatorname{softmax}\left(\frac{QK^\top}{\sqrt{d_k}}\right)V,
+\mathrm{head}_h=\mathrm{softmax}\!\Big(\frac{\mathbf{Q}_h\mathbf{K}_h^{\top}}{\sqrt{d_h}}\Big)\mathbf{V}_h,\quad d_h=D/\text{heads}.
+\label{eq:attn}
 \end{equation}
-where $Q$, $K$, and $V$ are query, key, and value projections and $d_k$ is the per-head key dimension. Multiple attention heads are concatenated and projected back to the embedding dimension.
+The factor $1/\sqrt{d_h}$ keeps the variance of the dot products near 1 (for unit-variance, independent query and key entries, $\mathrm{Var}(\mathbf{q}\!\cdot\!\mathbf{k})=d_h$), which stops the softmax from saturating and its gradients from vanishing. The patch projection is implemented as a \texttt{Conv2d} with kernel and stride $P$, which is exactly equivalent to flatten-then-\texttt{Linear} (verified by a unit test in the repository); it has $(P^2C)D+D$ parameters.
 
-\subsection{CNN baseline}
-ResNet-18 \cite{he2016} is used as a CNN baseline, initialized from scratch rather than pretrained weights. To accommodate CIFAR-10 resolution, its initial convolution is replaced with a $3 \times 3$ convolution of stride one, and the initial max-pooling operation is removed. The final fully connected layer is changed to output ten classes. The adapted model has 11,173,962 trainable parameters.
+\subsection{Position-embedding variants}
+Besides the paper's learned 1-D embedding, I implement a fixed 2-D sine-cosine embedding (half of the channels encode the patch row, half the column, no trainable parameters) and a ``none'' variant in which the encoder sees an unordered bag of patches.
 
-\subsection{Optimization and checkpointing}
-All primary experiments used 15 epochs, batch size 64, AdamW with learning rate $3 \times 10^{-4}$ and weight decay 0.05. A cosine-annealing learning-rate scheduler was used with a 15-epoch schedule. The selected checkpoint was the one with the highest validation accuracy, and final metrics were evaluated on the held-out test set. Training was run locally on Apple Silicon using PyTorch's MPS backend. Checkpoints and per-epoch history were saved to disk after each completed epoch to support recovery from interrupted sessions.
+\subsection{Attention rollout}
+Raw attention of the last layer ignores how information is mixed in earlier layers. Attention rollout \cite{abnar2020} propagates it through the network: with $\bar{\mathbf{A}}_\ell$ the head-averaged attention of layer $\ell$ and the identity added for the residual connection,
+\begin{equation}
+\hat{\mathbf{A}}_\ell=\mathrm{rownorm}\big(0.5\,\bar{\mathbf{A}}_\ell+0.5\,\mathbf{I}\big),\qquad
+\mathbf{R}=\hat{\mathbf{A}}_L\cdots\hat{\mathbf{A}}_1 .
+\end{equation}
+The CLS row of $\mathbf{R}$, without the CLS column, is reshaped to the $8\times8$ patch grid and bilinearly up-sampled onto the image. Rollout is a diagnostic of information flow, not a causal explanation.
 
-\section{Experiments}
-Four experiments were completed:
-\begin{enumerate}
-\item \textbf{ViT baseline:} full 45,000-image training partition, dropout 0.1.
-\item \textbf{ResNet-18 baseline:} full training partition, trained from scratch.
-\item \textbf{Low-data ViT:} same ViT configuration trained using 9,000 images.
-\item \textbf{Dropout ablation:} full training partition with ViT dropout set to zero.
-\end{enumerate}
-The dropout ablation is exploratory: the zero-dropout and baseline runs used different random seeds and were not repeated over multiple seeds. Consequently, their observed difference should not be interpreted as a definitive causal estimate of the effect of dropout.
+\section{Experimental Setup}\label{sec:setup}
+\textbf{Data.} CIFAR-10 \cite{krizhevsky2009}: a fixed 45\,000/5\,000 train/validation split of the training images (seed 42); the 10\,000 test images are touched once, on the checkpoint with the best validation accuracy. Subsets for the data-fraction study are nested (10\,\%\,$\subset$\,25\,\%\,$\subset\cdots$).
 
-\section{Results}
-Table~\ref{tab:results} reports the saved local-run results. The best epoch is selected using validation accuracy; test accuracy is reported for the selected checkpoint.
+\textbf{Models.} ViT: $32\times32$ input, patch size 4 ($N{=}64$ tokens $+$ CLS), $D{=}192$, depth 8, 6 heads, MLP width 768, \paramsVit{} parameters (a ViT-Tiny-sized model; the paper's ViT-B/16 has 86\,M). ResNet-18 \cite{he2016} with the usual CIFAR stem (3$\times$3 stride-1 convolution, no max-pool), \paramsRes{} parameters, trained from scratch.
+
+\textbf{Training recipe (identical for both from-scratch models).} Random crop (reflect-padding 4), horizontal flip, RandAugment \cite{cubuk2020}, mixup \cite{zhang2018} / CutMix \cite{yun2019} (50/50), label smoothing 0.1 \cite{szegedy2016}, linear warm-up and cosine decay, batch size 128, fp16 autocast on a Colab T4. ViT: AdamW \cite{loshchilov2019}, lr $10^{-3}$, weight decay 0.05, gradient clipping 1; ResNet: Nesterov SGD, lr 0.1, weight decay $5{\times}10^{-4}$. \verify{The 100\,\% runs use \epochsVit{} epochs; smaller subsets are trained for proportionally more epochs so that every model receives the same number of updates (epochs are listed in Table~\ref{tab:sweep}), separating the effect of data quantity from that of training length.} Everything is seeded; the repository README lists the exact commands.
+
+\textbf{Fine-tuning.} Pre-trained \texttt{timm} \cite{wightman2019} ViT-B/16 and ResNet-50 get a new 10-way head, inputs are up-sampled from $32$ to $224$ on the GPU, and training uses SGD with momentum (lr 0.01, cosine, gradient clipping) for \epochsFt{} epochs. \verify{The ViT-B/16 checkpoint is \texttt{timm}'s default \texttt{vit\_base\_patch16\_224} (AugReg training \cite{steiner2022}, ImageNet-21k pre-training, ImageNet-1k fine-tuning), not the original paper checkpoint; check the tag printed by your timm version.}
+
+\textbf{What differs from the paper.} (a) CIFAR-10 instead of ImageNet/JFT pre-training for the from-scratch study; (b) a ViT-Tiny-sized model; (c) tens of epochs instead of hundreds; (d) \texttt{timm} weights and a few fine-tuning epochs instead of the paper's fine-tuning schedule; (e) one seed per configuration unless a $\pm$ is shown.
 
 \begin{table}[t]
-\centering
-\caption{Results on CIFAR-10.}
-\label{tab:results}
-\small
-\begin{tabular}{lrrrr}
+\centering\small
+\caption{Training hyper-parameters.}
+\label{tab:hp}
+\begin{tabular}{@{}lccc@{}}
 \toprule
-Experiment & Params (M) & Best epoch & Val. (\%) & Test (\%)\\
+ & ViT-Tiny & ResNet-18 & Fine-tune \\
 \midrule
-ViT, dropout 0.1 & 1.206 & 15 & 71.94 & 72.00\\
-ResNet-18, scratch & 11.174 & 14 & 90.34 & 89.41\\
-ViT, 20\% data & 1.206 & 15 & 51.22 & 51.11\\
-ViT, dropout 0.0 & 1.206 & 15 & 74.42 & 75.02\\
+Optimiser & AdamW & Nesterov SGD & SGD (mom.\ 0.9) \\
+Peak lr & $10^{-3}$ & 0.1 & 0.01 \\
+Weight decay & 0.05 & $5{\times}10^{-4}$ & 0 \\
+Batch size & 128 & 128 & 64 \\
+Schedule & \multicolumn{2}{c}{warm-up + cosine} & warm-up + cosine \\
+Label smoothing & 0.1 & 0.1 & 0 \\
+Mixup/CutMix prob. & \verify{0.5--0.8} & \verify{0.5--0.8} & 0 \\
+Input & $32^2$ & $32^2$ & $224^2$ (up-sampled) \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\subsection{ViT versus ResNet-18}
-ResNet-18 achieved 89.41\% test accuracy, compared with 72.00\% for the ViT, an absolute difference of 17.41 percentage points. ResNet-18 has approximately 9.27 times as many trainable parameters. This result is consistent with the possibility that convolutional inductive biases are advantageous for a small image dataset and a limited training budget. However, the experiment compares only these specific implementations and hyperparameters; it does not establish a general ranking between CNNs and Transformers. ResNet-18 reached its best validation accuracy at epoch 14, while the ViT baseline was still improving at epoch 15, so the fixed training budget may not represent convergence for either architecture.
+\section{Results}
+\subsection{Q1: from-scratch ViT vs.\ ResNet-18 across data sizes}
+\begin{table}[t]
+\centering\small
+\caption{Test accuracy (\%) on CIFAR-10, from scratch, versus training-set size. Gap = ResNet $-$ ViT in percentage points.}
+\label{tab:sweep}
+\gentab{tab_sweep}
+\end{table}
+\begin{figure}[t]
+\centering\figbox{fraction_sweep}{0.85\columnwidth}
+\caption{Data-scale study in miniature (compare the paper's Fig.~3--4): accuracy versus fraction of the training set.}
+\label{fig:sweep}
+\end{figure}
+\begin{figure}[t]
+\centering\figbox{curves_full_data}{\columnwidth}
+\caption{Validation loss and accuracy of the two from-scratch models trained on the full training set.}
+\label{fig:curves}
+\end{figure}
+Table~\ref{tab:sweep} and Fig.~\ref{fig:sweep} give the main result (training curves: Fig.~\ref{fig:curves}). \verify{ResNet-18 is ahead of the ViT at every data size, by \gapFull{} points with all 45\,000 images and \gapTen{} points with 10\,\% (4\,500 images). The ViT loses more accuracy than the ResNet when data are removed, which is the qualitative trend the paper describes: without convolutional priors the transformer must learn locality from data.} Both absolute numbers are limited by the short schedule and by the small image size, which gives the ViT only 64 patch tokens.
 
-\subsection{Effect of reduced training data}
-Reducing the training partition from 45,000 to 9,000 images decreased ViT test accuracy from 72.00\% to 51.11\%, a decline of 20.89 percentage points. This indicates substantial sensitivity to training-set size in the current from-scratch setting. The result should be interpreted as a comparison under this particular subset selection, augmentation pipeline, and training budget.
+\subsection{Q2: pre-training and comparison with the paper}
+\begin{table}[t]
+\centering\small
+\caption{Fine-tuned on CIFAR-10 (this work) versus the paper's Table~5 for ViT-B/16.}
+\label{tab:ft}
+\gentab{tab_finetune}
+\end{table}
+\verify{Pre-training removes the gap: ViT-B/16 reaches \accFtVit\,\% and ResNet-50 \accFtRes\,\% after only \epochsFt{} epochs (Table~\ref{tab:ft}), compared with \accVitFull\,\% and \accResFull\,\% when ViT-Tiny and ResNet-18 are trained from scratch. My ViT-B/16 figure should be read against the paper's 98.95\,\% for ImageNet-21k pre-training and 98.13\,\% for ImageNet-1k pre-training; the remaining difference is explained by the different checkpoint, resolution handling and the much shorter fine-tuning schedule listed in Sec.~\ref{sec:setup}.} The paper reports no from-scratch CIFAR-10 number, so the from-scratch rows are my own addition.
 
-\subsection{Dropout ablation}
-The zero-dropout run reached 75.02\% test accuracy, 3.02 percentage points higher than the baseline's 72.00\%. Validation accuracy increased from 71.94\% to 74.42\%. This is evidence that removing dropout was beneficial in this individual run, but it is not sufficient to establish that dropout is generally harmful. The experiments were not paired across identical random initializations and the comparison has not yet been repeated over multiple seeds. A controlled multi-seed ablation should report mean and standard deviation before drawing a stronger conclusion.
+\subsection{Q3: position-embedding ablation}
+\begin{table}[t]
+\centering\small
+\caption{Position-embedding ablation (ViT, full training set, same recipe).}
+\label{tab:abl}
+\gentab{tab_ablation}
+\end{table}
+Following the paper's own ablation (its Appendix D.4), which found that \emph{having} position information matters while \emph{how} it is encoded matters little, Table~\ref{tab:abl} compares no position embedding, 1-D learned and 2-D sin-cos. \verify{Without position embeddings the accuracy is \accAblNone\,\%, against \accAblLearned\,\% (learned) and \accAblSincos\,\% (sin-cos). Differences between the two position encodings are small relative to the gap to ``none''; with one seed per variant, differences under about one point should not be over-interpreted.} Without positions the model is permutation-invariant over patches and cannot use spatial layout beyond what is present inside a single $4\times4$ patch.
 
-\section{Attention Rollout}
-Attention rollout was implemented by averaging attention across heads, adding identity connections to represent residual paths, row-normalizing the matrices, and composing attention matrices across layers. The resulting scores from the classification token to patch tokens were reshaped into a $8 \times 8$ grid and upsampled for visualization. In the inspected example, the true and predicted class were both \emph{cat}. This verifies that the visualization pipeline executed, but a single example does not establish explanation faithfulness or overall predictive performance. Attention rollout should be treated as a qualitative diagnostic rather than a causal explanation of the model's decision.
+\section{Qualitative Analysis and Failure Cases}
+\begin{figure}[t]
+\centering\figbox{rollout_grid}{0.78\columnwidth}
+\caption{Attention rollout of the full-data ViT. Rows: correctly classified images, their rollout overlays, misclassified images (T = true, P = predicted) and overlays.}
+\label{fig:rollout}
+\end{figure}
+Fig.~\ref{fig:rollout} shows rollout maps for four correctly and four incorrectly classified test images. \verify{[Describe what you actually see: e.g.\ whether the CLS token concentrates on the object or on the background, and whether misclassified images show diffuse attention or attention on a distracting region. Do not claim object-centred attention unless the figure shows it.]} Because rollout multiplies averaged attention matrices it is a coarse diagnostic and says nothing about causal importance.
 
-\section{Limitations and Future Work}
-Several limitations constrain the conclusions. First, this is a reduced-scale experiment on CIFAR-10 rather than the large-scale ImageNet/JFT setting used in the original ViT work. Second, the primary comparison uses one training run per configuration and only 15 epochs. Third, the no-dropout result is based on a single run and should be repeated with matched seeds and multiple independent runs. Fourth, the study does not include a pretrained-backbone experiment. Fifth, the final epoch was the best validation epoch for the baseline ViT and low-data ViT, suggesting that additional training may improve performance. Finally, the attention visualization is qualitative and does not prove that highlighted patches caused the prediction.
+\begin{figure}[t]
+\centering\figbox{confusion_vit}{0.8\columnwidth}
+\caption{Row-normalised confusion matrix of the full-data ViT on the test set.}
+\label{fig:cm}
+\end{figure}
+Fig.~\ref{fig:cm} shows the ViT's errors. \verify{The most frequent confusions are \topConfVit{} (true$\to$predicted, number of test images), while the easiest and hardest classes are \bestClassVit{} (\bestAccVit\,\%) and \worstClassVit{} (\worstAccVit\,\%). For ResNet-18 the most frequent confusions are \topConfRes{}. [Add one sentence on why, e.g.\ whether the confused classes are visually similar at $32\times32$ resolution, only if the matrix supports it.]}
 
-Future work should extend the training budget for both architectures, perform a multi-seed dropout ablation, report mean and standard deviation, and optionally compare a pretrained model as a separate transfer-learning setting. Any such results should be reported separately from the current from-scratch experiments.
+\textbf{What did not work / caveats.} A first version of this project (15 epochs, crop and flip only, dropout 0.1, $D{=}128$, 1.2\,M parameters) reached only 72.0\,\% for the ViT and 89.4\,\% for ResNet-18; its dropout ablation (75.0\,\% without dropout) used different seeds per run and is not repeated here. Without strong augmentation a from-scratch ViT overfits CIFAR-10 quickly, which is why the final recipe adds RandAugment, mixup/CutMix, label smoothing and warm-up.
+
+\section{Discussion and Limitations}
+\verify{The experiments support the paper's qualitative message in miniature: the transformer is competitive only with a lot of data or with pre-training, while a convolutional network with its built-in priors is data-efficient.} The limitations are real: \verify{one seed per configuration (differences of a few tenths of a point are within noise)}, short schedules, a small ViT, $32\times32$ inputs with only 64 tokens, a hyper-parameter recipe that was tuned lightly and not per data fraction, and checkpoint selection on a 5\,000-image validation set. The AugReg-trained \texttt{timm} checkpoint is not the paper's. These choices were made for a free-GPU budget, and the absolute numbers should not be compared with state-of-the-art CIFAR-10 results.
 
 \section{Conclusion}
-A compact ViT was implemented from scratch and evaluated on CIFAR-10 with a ResNet-18 baseline, a reduced-data experiment, a dropout ablation, and attention rollout. The ViT achieved 72.00\% test accuracy, while the adapted ResNet-18 achieved 89.41\% under the same 15-epoch budget. Training the ViT with only 20\% of the training partition reduced test accuracy to 51.11\%. A single no-dropout run reached 75.02\%, motivating but not proving a potential benefit from reducing dropout in this configuration. Overall, the project demonstrates the ViT pipeline and provides an empirical comparison while highlighting the importance of dataset size, inductive bias, and experimental replication.
+A ViT was written from scratch (patch embedding, CLS token, learned/sin-cos/no position embedding, manual multi-head attention, pre-LN blocks, rollout) and compared with ResNets on CIFAR-10 in three regimes: from scratch with shrinking data, fine-tuned from pre-trained weights, and with position embeddings ablated. \verify{ViT trails ResNet-18 from scratch and more so with less data, pre-training closes the gap, and position information is the component whose removal costs the most.} The code, seeds, results and a Colab notebook are in the project repository \url{https://github.com/aditya-kumar04/ViT-CIFAR10}. The ViT paper's official code was not used; only the paper (and \cite{abnar2020} for rollout) was consulted, and \texttt{timm} supplies the pre-trained backbones.
 
 \begin{thebibliography}{00}
 \bibitem{dosovitskiy2021}
-A. Dosovitskiy \emph{et al.}, ``An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale,'' in \emph{Proc. International Conference on Learning Representations (ICLR)}, 2021.
-
+A. Dosovitskiy \emph{et al.}, ``An image is worth 16x16 words: Transformers for image recognition at scale,'' in \emph{Proc. ICLR}, 2021.
+\bibitem{vaswani2017}
+A. Vaswani \emph{et al.}, ``Attention is all you need,'' in \emph{Proc. NeurIPS}, 2017.
 \bibitem{he2016}
-K. He, X. Zhang, S. Ren, and J. Sun, ``Deep Residual Learning for Image Recognition,'' in \emph{Proc. IEEE Conference on Computer Vision and Pattern Recognition (CVPR)}, 2016, pp. 770--778, doi: 10.1109/CVPR.2016.90.
-
+K. He, X. Zhang, S. Ren, and J. Sun, ``Deep residual learning for image recognition,'' in \emph{Proc. CVPR}, 2016, pp. 770--778.
 \bibitem{krizhevsky2009}
-A. Krizhevsky, ``Learning Multiple Layers of Features from Tiny Images,'' Technical Report, University of Toronto, 2009.
+A. Krizhevsky, ``Learning multiple layers of features from tiny images,'' Univ.\ Toronto, Tech.\ Rep., 2009.
+\bibitem{abnar2020}
+S. Abnar and W. Zuidema, ``Quantifying attention flow in Transformers,'' in \emph{Proc. ACL}, 2020, pp. 4190--4197.
+\bibitem{cubuk2020}
+E. D. Cubuk, B. Zoph, J. Shlens, and Q. V. Le, ``RandAugment: Practical automated data augmentation with a reduced search space,'' in \emph{Proc. CVPR Workshops}, 2020.
+\bibitem{zhang2018}
+H. Zhang, M. Cisse, Y. N. Dauphin, and D. Lopez-Paz, ``mixup: Beyond empirical risk minimization,'' in \emph{Proc. ICLR}, 2018.
+\bibitem{yun2019}
+S. Yun \emph{et al.}, ``CutMix: Regularization strategy to train strong classifiers with localizable features,'' in \emph{Proc. ICCV}, 2019.
+\bibitem{szegedy2016}
+C. Szegedy, V. Vanhoucke, S. Ioffe, J. Shlens, and Z. Wojna, ``Rethinking the Inception architecture for computer vision,'' in \emph{Proc. CVPR}, 2016, pp. 2818--2826.
+\bibitem{loshchilov2019}
+I. Loshchilov and F. Hutter, ``Decoupled weight decay regularization,'' in \emph{Proc. ICLR}, 2019.
+\bibitem{steiner2022}
+A. Steiner \emph{et al.}, ``How to train your ViT? Data, augmentation, and regularization in Vision Transformers,'' \emph{Trans.\ Mach.\ Learn.\ Res.}, 2022.
+\bibitem{wightman2019}
+R. Wightman, ``PyTorch image models (timm),'' GitHub repository, 2019. [Online]. Available: \url{https://github.com/huggingface/pytorch-image-models}
 \end{thebibliography}
-
 \end{document}
